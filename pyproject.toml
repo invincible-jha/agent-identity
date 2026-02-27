@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-identity"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent identity management, trust scoring, and certificate management"
 readme = "README.md"
 requires-python = ">=3.10"
