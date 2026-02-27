@@ -49,11 +49,19 @@ class CertificateAuthority:
         common_name: str = "Agent Identity CA",
         organization: str = "MuVeraAI",
         validity_days: int = 3650,
+        ca_key_size: int = 3072,
     ) -> "CertificateAuthority":
         """Generate a new self-signed Certificate Authority.
 
-        Creates a 2048-bit RSA key pair and issues a self-signed CA
-        certificate valid for *validity_days* days.
+        Creates an RSA key pair and issues a self-signed CA certificate
+        valid for *validity_days* days. The default key size is 3072 bits,
+        which meets NIST SP 800-57 recommendations for certificates with
+        long validity periods (up to 10 years). Use 4096 for the highest
+        security margin at the cost of slower key generation.
+
+        Agent certificates issued by this CA use 2048-bit keys by default
+        (shorter validity, lower risk profile) — see
+        :meth:`sign_agent_cert` / :class:`AgentCertificate`.
 
         Parameters
         ----------
@@ -63,15 +71,27 @@ class CertificateAuthority:
             Organization name for the CA certificate subject.
         validity_days:
             How long the CA certificate should be valid (default 10 years).
+        ca_key_size:
+            RSA key size in bits for the CA key pair. Defaults to 3072.
+            Must be at least 2048; 3072 or 4096 recommended for long-lived CAs.
 
         Returns
         -------
         CertificateAuthority
             Fully initialized CA instance.
+
+        Raises
+        ------
+        ValueError
+            If ``ca_key_size`` is less than 2048.
         """
+        if ca_key_size < 2048:
+            raise ValueError(
+                f"ca_key_size must be at least 2048 bits, got {ca_key_size}"
+            )
         ca_key: RSAPrivateKey = rsa.generate_private_key(
             public_exponent=65537,
-            key_size=2048,
+            key_size=ca_key_size,
         )
 
         now = datetime.datetime.now(datetime.timezone.utc)

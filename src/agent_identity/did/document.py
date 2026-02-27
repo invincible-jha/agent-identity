@@ -23,7 +23,6 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -118,7 +117,7 @@ class VerificationMethod:
         if not self.public_key_multibase:
             raise ValueError("VerificationMethod.public_key_multibase must not be empty.")
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Serialize to a W3C-compatible plain dictionary."""
         return {
             "id": self.id,
@@ -319,7 +318,7 @@ class DIDDocument(BaseModel):
         str
             JSON representation of this DID document.
         """
-        data: dict[str, Any] = {
+        data: dict[str, object] = {
             "@context": self.context,
             "id": self.id,
             "controller": self.controller,

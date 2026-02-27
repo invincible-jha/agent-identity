@@ -294,17 +294,26 @@ class DIDRegistry:
                 continue
             try:
                 entry = json.loads(raw_line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid JSON on line {line_number}: {exc}"
+                ) from exc
+            try:
                 deactivated_flag: bool = entry.pop("_deactivated", False)
                 doc = DIDDocument.from_json(json.dumps(entry))
-                with self._lock:
-                    if doc.id not in self._documents:
-                        self._documents[doc.id] = doc
-                        if deactivated_flag:
-                            self._deactivated.add(doc.id)
-            except Exception as exc:
+            except KeyError as exc:
                 raise ValueError(
-                    f"Failed to parse registry entry on line {line_number}: {exc}"
+                    f"Missing required field on line {line_number}: {exc}"
                 ) from exc
+            except (TypeError, AttributeError) as exc:
+                raise ValueError(
+                    f"Invalid data structure on line {line_number}: {exc}"
+                ) from exc
+            with self._lock:
+                if doc.id not in self._documents:
+                    self._documents[doc.id] = doc
+                    if deactivated_flag:
+                        self._deactivated.add(doc.id)
 
     def __len__(self) -> int:
         """Return the number of registered documents (including deactivated)."""

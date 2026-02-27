@@ -27,11 +27,15 @@ Quick start
         AuthMiddleware, RBACMiddleware, IdentityAuditLogger,
         # Certificates
         CertificateAuthority, AgentCertificate,
+        # Native binding
+        NativeIdentityBinder, IdentityBinding, BindingMethod, resolve_binding,
     )
 """
 from __future__ import annotations
 
 __version__: str = "0.1.0"
+
+from agent_identity.convenience import Identity
 
 # ------------------------------------------------------------------
 # Trust subsystem
@@ -87,9 +91,16 @@ except ImportError:
 from agent_identity.behavioral.fingerprint import BehavioralFingerprint
 from agent_identity.behavioral.features import FeatureExtractor, Observation
 
+# ------------------------------------------------------------------
+# Native identity binding subsystem
+# ------------------------------------------------------------------
+from agent_identity.native.binding import BindingMethod, IdentityBinding, NativeIdentityBinder
+from agent_identity.native.resolver import BindingStore, ResolutionResult, resolve_binding
+
 __all__ = [
     # version
     "__version__",
+    "Identity",
     # trust
     "TrustDimension",
     "TrustHistory",
@@ -132,4 +143,11 @@ __all__ = [
     "BehavioralFingerprint",
     "FeatureExtractor",
     "Observation",
+    # native identity binding
+    "BindingMethod",
+    "BindingStore",
+    "IdentityBinding",
+    "NativeIdentityBinder",
+    "ResolutionResult",
+    "resolve_binding",
 ]

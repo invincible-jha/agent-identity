@@ -24,7 +24,6 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -61,13 +60,13 @@ class CredentialSubject:
     """
 
     id: str
-    claims: dict[str, Any]
+    claims: dict[str, object]
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("CredentialSubject.id must not be empty.")
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Serialize to a W3C-compatible plain dictionary."""
         return {"id": self.id, **self.claims}
 
@@ -121,7 +120,7 @@ class VerifiableCredential(BaseModel):
     expiration_date: datetime | None = None
     credential_subject: CredentialSubject
     credential_type: CredentialType
-    proof: dict[str, Any] | None = None
+    proof: dict[str, object] | None = None
 
     @field_validator("issuer")
     @classmethod
@@ -169,7 +168,7 @@ class VerifiableCredential(BaseModel):
         str
             JSON representation of this credential.
         """
-        data: dict[str, Any] = {
+        data: dict[str, object] = {
             "@context": self.context,
             "id": self.id,
             "type": self.type,
@@ -208,7 +207,7 @@ class VerifiableCredential(BaseModel):
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid JSON: {exc}") from exc
 
-        subject_raw: dict[str, Any] = data.get("credentialSubject", {})
+        subject_raw: dict[str, object] = data.get("credentialSubject", {})
         subject_id = subject_raw.pop("id", "")
         credential_subject = CredentialSubject(id=subject_id, claims=dict(subject_raw))
 
@@ -244,10 +243,10 @@ class VerifiableCredential(BaseModel):
 #
 #     set_crypto_proof_hook(my_signer)
 #
-_crypto_proof_hook: Any = None  # pragma: no cover
+_crypto_proof_hook: object = None  # pragma: no cover
 
 
-def set_crypto_proof_hook(hook: Any) -> None:  # pragma: no cover
+def set_crypto_proof_hook(hook: object) -> None:  # pragma: no cover
     """Register a cryptographic proof hook for credential signing.
 
     This is the extension point for adding real cryptographic proofs to
@@ -303,7 +302,7 @@ class CredentialIssuer:
         issuer_did: str,
         subject_did: str,
         credential_type: CredentialType,
-        claims: dict[str, Any],
+        claims: dict[str, object],
         expiration_days: int | None = None,
     ) -> VerifiableCredential:
         """Issue a new verifiable credential.
