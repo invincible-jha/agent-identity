@@ -21,7 +21,7 @@ agent-identity/
 
 agent-identity uses a decorator-based plugin registry backed by
 ``importlib.metadata`` entry-points. This allows third-party packages
-(including the AgentTrust enterprise edition) to extend the system
+(including commercial extensions) to extend the system
 without modifying the core.
 
 ### Registration at import time

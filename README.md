@@ -52,9 +52,8 @@ import agent_identity
 
 ## Enterprise Upgrade
 
-The open-source edition provides the core foundation. For production
-deployments requiring SLA-backed support, advanced integrations, and the full
-AgentTrust platform, see [docs/UPGRADE_TO_AgentTrust.md](docs/UPGRADE_TO_AgentTrust.md).
+For production deployments requiring SLA-backed support and advanced
+integrations, contact the maintainers or see the commercial extensions documentation.
 
 ## Contributing
 

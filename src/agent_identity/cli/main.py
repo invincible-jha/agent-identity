@@ -16,6 +16,10 @@ identity trust      Display or update trust scores
 identity delegate   Create a delegation token
 identity revoke     Revoke a delegation token
 identity list       List all registered agents
+did create          Create a W3C DID document
+did resolve         Resolve a DID to its document
+did issue           Issue a verifiable credential
+did verify          Verify a verifiable credential file
 """
 from __future__ import annotations
 
@@ -577,6 +581,260 @@ def _save_revocation(revocation, revocation_file: str | None) -> None:  # type: 
         return
     data = {"revoked_token_ids": sorted(revocation.revoked_token_ids())}
     Path(revocation_file).write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+# ------------------------------------------------------------------
+# did command group
+# ------------------------------------------------------------------
+
+
+@cli.group(name="did")
+def did_group() -> None:
+    """Manage W3C DID documents and verifiable credentials."""
+
+
+# ------------------------------------------------------------------
+# did create
+# ------------------------------------------------------------------
+
+
+@did_group.command(name="create")
+@click.option("--org", required=True, help="Organization segment of the DID (e.g. 'acme').")
+@click.option("--name", required=True, help="Name segment of the DID (e.g. 'invoicer').")
+@click.option(
+    "--registry-file",
+    type=click.Path(),
+    default=None,
+    help="Path to a JSON registry file for persistence.",
+)
+@click.option(
+    "--output",
+    type=click.Path(),
+    default=None,
+    help="Write the DID document JSON to this file.",
+)
+def did_create_command(
+    org: str,
+    name: str,
+    registry_file: str | None,
+    output: str | None,
+) -> None:
+    """Create a new DID document for did:agent:ORG:NAME."""
+    from agent_identity.did.document import DIDDocument
+    from agent_identity.did.registry import DIDAlreadyRegisteredError, DIDRegistry
+
+    did_str = f"did:agent:{org}:{name}"
+
+    try:
+        doc = DIDDocument(id=did_str, controller=did_str)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        sys.exit(1)
+
+    registry = _load_did_registry(registry_file)
+
+    try:
+        registered_did = registry.register(doc)
+    except DIDAlreadyRegisteredError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        sys.exit(1)
+
+    _save_did_registry(registry, registry_file)
+
+    doc_json = doc.to_json()
+    if output:
+        Path(output).write_text(doc_json, encoding="utf-8")
+        console.print(f"[green]DID document written to[/green] {output}")
+    else:
+        console.print(doc_json)
+
+    console.print(f"\n[green]Created[/green] DID: [bold]{registered_did}[/bold]")
+
+
+# ------------------------------------------------------------------
+# did resolve
+# ------------------------------------------------------------------
+
+
+@did_group.command(name="resolve")
+@click.argument("did")
+@click.option(
+    "--registry-file",
+    type=click.Path(),
+    default=None,
+    help="Path to a JSON registry file.",
+)
+def did_resolve_command(did: str, registry_file: str | None) -> None:
+    """Resolve DID to its DID document."""
+    from agent_identity.did.registry import DIDRegistry
+
+    registry = _load_did_registry(registry_file)
+    doc = registry.resolve(did)
+
+    if doc is None:
+        console.print(f"[red]Error:[/red] DID {did!r} not found in registry.")
+        sys.exit(1)
+
+    deactivated = registry.is_deactivated(did)
+    if deactivated:
+        console.print(f"[yellow]Warning:[/yellow] DID {did!r} is deactivated.")
+
+    console.print(doc.to_json())
+
+
+# ------------------------------------------------------------------
+# did issue
+# ------------------------------------------------------------------
+
+
+@did_group.command(name="issue")
+@click.option("--issuer", required=True, help="DID of the issuing agent.")
+@click.option("--subject", required=True, help="DID of the subject agent.")
+@click.option(
+    "--type",
+    "credential_type",
+    required=True,
+    help=(
+        "Credential type: SecurityCertification, ComplianceAttestation, "
+        "TrustScore, or CapabilityClaim."
+    ),
+)
+@click.option("--claims", default="{}", help="JSON object of claims to embed.")
+@click.option(
+    "--expiration-days",
+    type=int,
+    default=None,
+    help="Days until the credential expires (omit for no expiration).",
+)
+@click.option(
+    "--output",
+    type=click.Path(),
+    default=None,
+    help="Write the credential JSON to this file.",
+)
+def did_issue_command(
+    issuer: str,
+    subject: str,
+    credential_type: str,
+    claims: str,
+    expiration_days: int | None,
+    output: str | None,
+) -> None:
+    """Issue a verifiable credential from ISSUER to SUBJECT."""
+    from agent_identity.did.credentials import CredentialIssuer, CredentialType
+
+    try:
+        cred_type = CredentialType(credential_type)
+    except ValueError:
+        valid_types = ", ".join(t.value for t in CredentialType)
+        console.print(
+            f"[red]Error:[/red] Unknown credential type {credential_type!r}. "
+            f"Valid types: {valid_types}"
+        )
+        sys.exit(1)
+
+    try:
+        parsed_claims: dict[str, object] = json.loads(claims)
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]Error:[/red] --claims is not valid JSON: {exc}")
+        sys.exit(1)
+
+    issuer_obj = CredentialIssuer()
+    credential = issuer_obj.issue(
+        issuer_did=issuer,
+        subject_did=subject,
+        credential_type=cred_type,
+        claims=parsed_claims,
+        expiration_days=expiration_days,
+    )
+
+    cred_json = credential.to_json()
+    if output:
+        Path(output).write_text(cred_json, encoding="utf-8")
+        console.print(f"[green]Credential written to[/green] {output}")
+    else:
+        console.print(cred_json)
+
+    console.print(f"\n  ID:      [bold]{credential.id}[/bold]")
+    console.print(f"  Issuer:  {credential.issuer}")
+    console.print(f"  Subject: {credential.credential_subject.id}")
+    console.print(f"  Type:    {credential.credential_type.value}")
+    console.print(f"  Issued:  {credential.issuance_date.isoformat()}")
+    if credential.expiration_date:
+        console.print(f"  Expires: {credential.expiration_date.isoformat()}")
+
+
+# ------------------------------------------------------------------
+# did verify
+# ------------------------------------------------------------------
+
+
+@did_group.command(name="verify")
+@click.option(
+    "--credential",
+    "credential_file",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to a JSON verifiable credential file.",
+)
+@click.option(
+    "--registry-file",
+    type=click.Path(),
+    default=None,
+    help="Path to a JSON DID registry file for issuer/subject lookup.",
+)
+def did_verify_command(credential_file: str, registry_file: str | None) -> None:
+    """Verify a verifiable credential file structurally."""
+    from agent_identity.did.credentials import VerifiableCredential
+    from agent_identity.did.registry import DIDRegistry
+    from agent_identity.did.verification import DIDVerifier
+
+    try:
+        cred_json = Path(credential_file).read_text(encoding="utf-8")
+        credential = VerifiableCredential.from_json(cred_json)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] Could not load credential: {exc}")
+        sys.exit(1)
+
+    registry = _load_did_registry(registry_file)
+    verifier = DIDVerifier()
+    result = verifier.verify_credential(credential, registry)
+
+    for check in result.checks_passed:
+        console.print(f"  [green]PASS[/green]  {check}")
+    for check in result.checks_failed:
+        console.print(f"  [red]FAIL[/red]  {check}")
+
+    if result.valid:
+        console.print("\n[green]Credential verified successfully.[/green]")
+    else:
+        console.print("\n[red]Credential verification failed.[/red]")
+        sys.exit(1)
+
+
+# ------------------------------------------------------------------
+# Helpers — DID registry persistence for CLI use
+# ------------------------------------------------------------------
+
+
+def _load_did_registry(registry_file: str | None):  # type: ignore[return]
+    """Return a DIDRegistry, optionally pre-populated from a JSON file."""
+    from agent_identity.did.registry import DIDRegistry
+
+    registry = DIDRegistry()
+    if registry_file and Path(registry_file).exists():
+        try:
+            registry.import_registry(Path(registry_file))
+        except Exception as exc:
+            console.print(f"[yellow]Warning:[/yellow] Could not load DID registry file: {exc}")
+    return registry
+
+
+def _save_did_registry(registry, registry_file: str | None) -> None:  # type: ignore[no-untyped-def]
+    """Persist DID registry contents to a JSON file."""
+    if not registry_file:
+        return
+    registry.export_registry(Path(registry_file))
 
 
 if __name__ == "__main__":
