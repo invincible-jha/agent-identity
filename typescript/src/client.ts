@@ -249,14 +249,3 @@ export function createAgentIdentityClient(
   };
 }
 
-/** Re-export config and key types for convenience. */
-export type {
-  AgentIdentity,
-  BehaviorValidation,
-  Certificate,
-  CreateIdentityRequest,
-  DIDDocument,
-  IssueCertificateRequest,
-  TrustScore,
-  VerifyRequest,
-};
