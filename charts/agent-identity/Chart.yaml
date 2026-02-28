@@ -1,0 +1,12 @@
+apiVersion: v2
+name: agent-identity
+description: Agent identity and trust scoring framework
+type: application
+version: 0.1.0
+appVersion: "0.2.0"
+home: https://github.com/invincible-jha/agent-identity
+sources:
+  - https://github.com/invincible-jha/agent-identity
+maintainers:
+  - name: AumOS
+    url: https://github.com/invincible-jha
