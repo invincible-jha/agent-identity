@@ -1,0 +1,394 @@
+openapi: "3.1.0"
+
+info:
+  title: Agent Identity API
+  version: "0.2.0"
+  description: |
+    HTTP API for the agent-identity server. Provides endpoints for registering
+    agent identities, verifying claimed capabilities, and computing trust scores.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8082
+    description: Local development server
+
+tags:
+  - name: identities
+    description: Register and manage agent identity records
+  - name: verify
+    description: Verify agent identity and capabilities
+  - name: trust
+    description: Retrieve trust scores for agents
+  - name: health
+    description: Server health check
+
+paths:
+  /identities:
+    post:
+      tags: [identities]
+      operationId: createIdentity
+      summary: Register a new agent identity
+      description: |
+        Registers a new agent identity in the registry. Returns 409 if an
+        identity with the same agent_id already exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIdentityRequest"
+            example:
+              agent_id: "agent-abc123"
+              display_name: "Summarization Agent"
+              organization: "AumOS Platform"
+              capabilities: ["summarize", "translate", "classify"]
+              metadata:
+                region: "us-east-1"
+                version: "2.1.0"
+              did: "did:aumos:agent-abc123"
+      responses:
+        "201":
+          description: Identity registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityResponse"
+              example:
+                agent_id: "agent-abc123"
+                display_name: "Summarization Agent"
+                organization: "AumOS Platform"
+                capabilities: ["summarize", "translate", "classify"]
+                metadata:
+                  region: "us-east-1"
+                did: "did:aumos:agent-abc123"
+                registered_at: "2026-02-27T12:00:00+00:00"
+                updated_at: "2026-02-27T12:00:00+00:00"
+                active: true
+        "409":
+          description: Agent with this agent_id is already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Conflict"
+                detail: "Agent 'agent-abc123' is already registered."
+        "422":
+          description: Validation error in request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /verify:
+    post:
+      tags: [verify]
+      operationId: verifyIdentity
+      summary: Verify agent identity and capabilities
+      description: |
+        Checks whether an agent is registered, active, and possesses all
+        claimed capabilities. Returns verified=true only when all conditions
+        are met. Always returns HTTP 200 — the verification result is in the
+        response body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyRequest"
+            example:
+              agent_id: "agent-abc123"
+              claimed_capabilities: ["summarize", "translate"]
+              context:
+                request_id: "req-001"
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+              examples:
+                verified:
+                  summary: Agent verified successfully
+                  value:
+                    agent_id: "agent-abc123"
+                    verified: true
+                    active: true
+                    capabilities_valid: true
+                    missing_capabilities: []
+                    trust_score: null
+                    message: "Verification successful."
+                capability_mismatch:
+                  summary: Agent exists but lacks a capability
+                  value:
+                    agent_id: "agent-abc123"
+                    verified: false
+                    active: true
+                    capabilities_valid: false
+                    missing_capabilities: ["vision"]
+                    trust_score: null
+                    message: "Capability mismatch."
+                not_registered:
+                  summary: Agent not found in registry
+                  value:
+                    agent_id: "unknown-agent"
+                    verified: false
+                    active: false
+                    capabilities_valid: false
+                    missing_capabilities: []
+                    message: "Agent 'unknown-agent' is not registered."
+        "422":
+          description: Validation error in request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /trust/{agent_id}:
+    get:
+      tags: [trust]
+      operationId: getTrustScore
+      summary: Get trust score for an agent
+      description: |
+        Computes and returns a composite trust score for the registered agent,
+        broken down by dimension (competence, reliability, integrity).
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          description: Identifier of the agent to score
+          schema:
+            type: string
+          example: "agent-abc123"
+      responses:
+        "200":
+          description: Trust score computed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrustResponse"
+              example:
+                agent_id: "agent-abc123"
+                composite: 70.0
+                level: "STANDARD"
+                dimensions:
+                  competence: 70.0
+                  reliability: 70.0
+                  integrity: 70.0
+                timestamp: "2026-02-27T12:00:00+00:00"
+        "404":
+          description: Agent not found in registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Not found"
+                detail: "Agent 'unknown-agent' is not registered."
+
+  /health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: Health check
+      description: Returns server status and current identity count.
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: "ok"
+                service: "agent-identity"
+                version: "0.1.0"
+                identity_count: 42
+
+components:
+  schemas:
+    CreateIdentityRequest:
+      type: object
+      description: Request body for registering a new agent identity.
+      required: [agent_id, display_name, organization]
+      properties:
+        agent_id:
+          type: string
+          description: Unique identifier for the agent (must not be empty)
+        display_name:
+          type: string
+          description: Human-readable name for the agent
+        organization:
+          type: string
+          description: Organization or team that owns this agent
+        capabilities:
+          type: array
+          items:
+            type: string
+          default: []
+          description: List of capability strings the agent supports
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          default: {}
+          description: Arbitrary string key-value metadata
+        did:
+          type: string
+          default: ""
+          description: Decentralized Identifier (DID) URI for this agent
+
+    IdentityResponse:
+      type: object
+      description: Registered agent identity record.
+      required:
+        - agent_id
+        - display_name
+        - organization
+        - registered_at
+        - updated_at
+        - active
+      properties:
+        agent_id:
+          type: string
+        display_name:
+          type: string
+        organization:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+          default: []
+        metadata:
+          type: object
+          additionalProperties: true
+          default: {}
+        did:
+          type: string
+          default: ""
+        registered_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp when the identity was registered
+        updated_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp of the last update
+        active:
+          type: boolean
+          description: Whether this identity is currently active
+
+    VerifyRequest:
+      type: object
+      description: Request body for verifying an agent's identity and capabilities.
+      required: [agent_id]
+      properties:
+        agent_id:
+          type: string
+          description: Identifier of the agent to verify
+        claimed_capabilities:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Capabilities the caller claims this agent has
+        context:
+          type: object
+          additionalProperties:
+            type: string
+          default: {}
+          description: Optional context key-value pairs (e.g. request_id)
+
+    VerifyResponse:
+      type: object
+      description: Result of an identity verification check.
+      required: [agent_id, verified, active, capabilities_valid]
+      properties:
+        agent_id:
+          type: string
+        verified:
+          type: boolean
+          description: True when agent is registered, active, and all claimed capabilities match
+        active:
+          type: boolean
+          description: Whether the agent is currently active in the registry
+        capabilities_valid:
+          type: boolean
+          description: Whether all claimed_capabilities are present in the registration
+        missing_capabilities:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Capabilities from claimed_capabilities not found in the registration
+        trust_score:
+          type: number
+          format: double
+          nullable: true
+          description: Optional trust score when computed as part of verification
+        message:
+          type: string
+          default: ""
+          description: Human-readable outcome message
+
+    TrustResponse:
+      type: object
+      description: Trust score assessment for an agent.
+      required: [agent_id, composite, level, timestamp]
+      properties:
+        agent_id:
+          type: string
+        composite:
+          type: number
+          format: double
+          description: Composite trust score (0-100)
+        level:
+          type: string
+          description: Trust level name (UNTRUSTED, MINIMAL, STANDARD, ELEVATED, PRIVILEGED)
+          enum: [UNTRUSTED, MINIMAL, STANDARD, ELEVATED, PRIVILEGED]
+        dimensions:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          default: {}
+          description: Per-dimension trust scores keyed by dimension name
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp when the score was computed
+
+    HealthResponse:
+      type: object
+      description: Server health information.
+      required: [status, service, version, identity_count]
+      properties:
+        status:
+          type: string
+          default: "ok"
+        service:
+          type: string
+          default: "agent-identity"
+        version:
+          type: string
+          default: "0.1.0"
+        identity_count:
+          type: integer
+          description: Number of registered identities currently in the registry
+
+    ErrorResponse:
+      type: object
+      description: Standard error response body.
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Short error category label
+        detail:
+          type: string
+          default: ""
+          description: Human-readable detail message
