@@ -1,8 +1,12 @@
 /**
  * HTTP client for the agent-identity service API.
  *
- * Uses the Fetch API (available natively in Node 18+, browsers, and Deno).
- * No external dependencies required.
+ * Delegates all HTTP transport to `@aumos/sdk-core` which provides
+ * automatic retry with exponential back-off, timeout management via
+ * `AbortSignal.timeout`, interceptor support, and a typed error hierarchy.
+ *
+ * The public-facing `ApiResult<T>` envelope is preserved for full
+ * backward compatibility with existing callers.
  *
  * @example
  * ```ts
@@ -14,17 +18,20 @@
  * if (identity.ok) {
  *   console.log("Organization:", identity.data.organization);
  * }
- *
- * const trust = await client.getTrustScore("my-agent");
- * if (trust.ok) {
- *   console.log("Composite trust:", trust.data.composite, "Level:", trust.data.level);
- * }
  * ```
  */
 
+import {
+  createHttpClient,
+  HttpError,
+  NetworkError,
+  TimeoutError,
+  AumosError,
+  type HttpClient,
+} from "@aumos/sdk-core";
+
 import type {
   AgentIdentity,
-  ApiError,
   ApiResult,
   BehaviorValidation,
   Certificate,
@@ -50,55 +57,51 @@ export interface AgentIdentityClientConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// Internal adapter
 // ---------------------------------------------------------------------------
 
-async function fetchJson<T>(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
+async function callApi<T>(
+  operation: () => Promise<{ readonly data: T; readonly status: number }>,
 ): Promise<ApiResult<T>> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    const body = await response.json() as unknown;
-
-    if (!response.ok) {
-      const errorBody = body as Partial<ApiError>;
+    const response = await operation();
+    return { ok: true, data: response.data };
+  } catch (error: unknown) {
+    if (error instanceof HttpError) {
       return {
         ok: false,
-        error: {
-          error: errorBody.error ?? "Unknown error",
-          detail: errorBody.detail ?? "",
-        },
-        status: response.status,
+        error: { error: error.message, detail: String(error.body ?? "") },
+        status: error.statusCode,
       };
     }
-
-    return { ok: true, data: body as T };
-  } catch (err: unknown) {
-    clearTimeout(timeoutId);
-    const message = err instanceof Error ? err.message : String(err);
+    if (error instanceof TimeoutError) {
+      return {
+        ok: false,
+        error: { error: "Request timed out", detail: error.message },
+        status: 0,
+      };
+    }
+    if (error instanceof NetworkError) {
+      return {
+        ok: false,
+        error: { error: "Network error", detail: error.message },
+        status: 0,
+      };
+    }
+    if (error instanceof AumosError) {
+      return {
+        ok: false,
+        error: { error: error.code, detail: error.message },
+        status: error.statusCode ?? 0,
+      };
+    }
+    const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      error: { error: "Network error", detail: message },
+      error: { error: "Unexpected error", detail: message },
       status: 0,
     };
   }
-}
-
-function buildHeaders(
-  extraHeaders: Readonly<Record<string, string>> | undefined,
-): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    ...extraHeaders,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -118,9 +121,6 @@ export interface AgentIdentityClient {
   /**
    * Compute and retrieve the multi-dimensional trust score for an agent.
    *
-   * Returns a TrustScore with per-dimension scores (competence, reliability,
-   * integrity), a weighted composite score, and a derived TrustLevel.
-   *
    * @param agentId - The unique agent identifier.
    * @returns The TrustScore with composite and per-dimension scores.
    */
@@ -137,9 +137,6 @@ export interface AgentIdentityClient {
   /**
    * Issue a new X.509 certificate for a registered agent.
    *
-   * The certificate encodes the agent's identity, capabilities, trust level,
-   * and organizational affiliation using SAN URI extensions.
-   *
    * @param request - Certificate issuance request including agent_id and validity.
    * @returns The issued Certificate with PEM-encoded cert and serial number.
    */
@@ -155,8 +152,6 @@ export interface AgentIdentityClient {
 
   /**
    * Resolve the W3C DID document for an agent by its DID string.
-   *
-   * The did:agent method format is: did:agent:<org>:<name>
    *
    * @param did - The fully-qualified DID string (e.g. "did:agent:acme:invoicer").
    * @returns The resolved DIDDocument conforming to W3C DID Core.
@@ -177,75 +172,41 @@ export interface AgentIdentityClient {
 export function createAgentIdentityClient(
   config: AgentIdentityClientConfig,
 ): AgentIdentityClient {
-  const { baseUrl, timeoutMs = 30_000, headers: extraHeaders } = config;
-  const baseHeaders = buildHeaders(extraHeaders);
+  const http: HttpClient = createHttpClient({
+    baseUrl: config.baseUrl,
+    timeout: config.timeoutMs ?? 30_000,
+    defaultHeaders: config.headers,
+  });
 
   return {
-    async getIdentity(agentId: string): Promise<ApiResult<AgentIdentity>> {
-      return fetchJson<AgentIdentity>(
-        `${baseUrl}/identities/${encodeURIComponent(agentId)}`,
-        { method: "GET", headers: baseHeaders },
-        timeoutMs,
+    getIdentity(agentId: string): Promise<ApiResult<AgentIdentity>> {
+      return callApi(() =>
+        http.get<AgentIdentity>(`/identities/${encodeURIComponent(agentId)}`),
       );
     },
 
-    async getTrustScore(agentId: string): Promise<ApiResult<TrustScore>> {
-      return fetchJson<TrustScore>(
-        `${baseUrl}/trust/${encodeURIComponent(agentId)}`,
-        { method: "GET", headers: baseHeaders },
-        timeoutMs,
+    getTrustScore(agentId: string): Promise<ApiResult<TrustScore>> {
+      return callApi(() =>
+        http.get<TrustScore>(`/trust/${encodeURIComponent(agentId)}`),
       );
     },
 
-    async validateBehavior(
-      request: VerifyRequest,
-    ): Promise<ApiResult<BehaviorValidation>> {
-      return fetchJson<BehaviorValidation>(
-        `${baseUrl}/verify`,
-        {
-          method: "POST",
-          headers: baseHeaders,
-          body: JSON.stringify(request),
-        },
-        timeoutMs,
-      );
+    validateBehavior(request: VerifyRequest): Promise<ApiResult<BehaviorValidation>> {
+      return callApi(() => http.post<BehaviorValidation>("/verify", request));
     },
 
-    async issueCertificate(
-      request: IssueCertificateRequest,
-    ): Promise<ApiResult<Certificate>> {
-      return fetchJson<Certificate>(
-        `${baseUrl}/certificates`,
-        {
-          method: "POST",
-          headers: baseHeaders,
-          body: JSON.stringify(request),
-        },
-        timeoutMs,
-      );
+    issueCertificate(request: IssueCertificateRequest): Promise<ApiResult<Certificate>> {
+      return callApi(() => http.post<Certificate>("/certificates", request));
     },
 
-    async verifyIdentity(
-      request: CreateIdentityRequest,
-    ): Promise<ApiResult<AgentIdentity>> {
-      return fetchJson<AgentIdentity>(
-        `${baseUrl}/identities`,
-        {
-          method: "POST",
-          headers: baseHeaders,
-          body: JSON.stringify(request),
-        },
-        timeoutMs,
-      );
+    verifyIdentity(request: CreateIdentityRequest): Promise<ApiResult<AgentIdentity>> {
+      return callApi(() => http.post<AgentIdentity>("/identities", request));
     },
 
-    async resolveDID(did: string): Promise<ApiResult<DIDDocument>> {
-      return fetchJson<DIDDocument>(
-        `${baseUrl}/did/${encodeURIComponent(did)}`,
-        { method: "GET", headers: baseHeaders },
-        timeoutMs,
+    resolveDID(did: string): Promise<ApiResult<DIDDocument>> {
+      return callApi(() =>
+        http.get<DIDDocument>(`/did/${encodeURIComponent(did)}`),
       );
     },
   };
 }
-

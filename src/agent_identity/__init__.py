@@ -86,6 +86,17 @@ except ImportError:
     _CERTS_AVAILABLE = False
 
 # ------------------------------------------------------------------
+# did:key subsystem (optional — cryptography package required)
+# ------------------------------------------------------------------
+try:
+    from agent_identity.did.did_key import DIDKeyDocument, DIDKeyProvider
+    from agent_identity.did.key_manager import Ed25519KeyManager
+
+    _DID_KEY_AVAILABLE = True
+except ImportError:
+    _DID_KEY_AVAILABLE = False
+
+# ------------------------------------------------------------------
 # Behavioral subsystem
 # ------------------------------------------------------------------
 from agent_identity.behavioral.fingerprint import BehavioralFingerprint
@@ -139,6 +150,10 @@ __all__ = [
     "CertVerifier",
     "FilesystemCertStore",
     "RevocationList",
+    # did:key (conditionally available — requires cryptography package)
+    "DIDKeyDocument",
+    "DIDKeyProvider",
+    "Ed25519KeyManager",
     # behavioral
     "BehavioralFingerprint",
     "FeatureExtractor",

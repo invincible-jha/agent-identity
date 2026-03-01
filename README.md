@@ -21,6 +21,14 @@ Part of the [AumOS](https://github.com/aumos-ai) open-source agent infrastructur
 - RBAC middleware enforces role-based access at call boundaries; audit middleware records every identity-check decision for compliance review
 - Trust history log tracks score trajectories over time so administrators can review how an agent's trust evolved before granting elevated permissions
 
+## Current Limitations
+
+> **Transparency note**: We list known limitations to help you evaluate fit.
+
+- **DID Method**: Custom `did:aumos` method only. No W3C `did:key` or `did:web` yet.
+- **Storage**: In-memory identity registry. No persistent identity store.
+- **Federation**: No cross-organization identity federation.
+
 ## Quick Start
 
 Install from PyPI:

@@ -67,6 +67,20 @@ from agent_identity.did.document import (
 from agent_identity.did.registry import DIDRegistry
 from agent_identity.did.verification import DIDVerifier, VerificationResult
 
+# did:key support — requires the cryptography package (pip install agent-identity[crypto])
+try:
+    from agent_identity.did.did_key import (
+        DIDKeyDocument,
+        DIDKeyProvider,
+        _public_key_to_did,
+        _validate_did_key_format,
+    )
+    from agent_identity.did.key_manager import Ed25519KeyManager
+
+    _DID_KEY_AVAILABLE = True
+except ImportError:
+    _DID_KEY_AVAILABLE = False
+
 __all__ = [
     # document
     "DID_METHOD",
@@ -83,4 +97,11 @@ __all__ = [
     # verification
     "DIDVerifier",
     "VerificationResult",
+    # did:key (conditionally available — requires cryptography package)
+    "DIDKeyDocument",
+    "DIDKeyProvider",
+    "Ed25519KeyManager",
+    "_public_key_to_did",
+    "_validate_did_key_format",
+    "_DID_KEY_AVAILABLE",
 ]

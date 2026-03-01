@@ -6,6 +6,12 @@ Uses the ``did:aumos`` method. DIDs are formatted as::
 
 Resolution maps a DID back to the registered AgentIdentityRecord.
 Verification confirms that a DID matches the registered agent_id.
+
+The module also exposes :meth:`DIDProvider.create_did_key` which creates a
+``did:key`` (W3C standard, cryptographic) alongside the legacy ``did:aumos``
+identifier. The ``did:key`` method requires the ``cryptography`` package::
+
+    pip install agent-identity[crypto]
 """
 from __future__ import annotations
 
@@ -14,6 +20,15 @@ from dataclasses import dataclass
 
 _DID_METHOD = "aumos"
 _DID_PATTERN = re.compile(r"^did:aumos:(?P<agent_id>.+)$")
+
+# did:key support — optional; guarded import so the registry module loads
+# correctly even without the cryptography package installed.
+try:
+    from agent_identity.did.did_key import DIDKeyDocument, DIDKeyProvider
+
+    _DID_KEY_AVAILABLE = True
+except ImportError:
+    _DID_KEY_AVAILABLE = False
 
 
 @dataclass
@@ -58,6 +73,8 @@ class DIDProvider:
     def __init__(self) -> None:
         self._did_to_agent: dict[str, str] = {}
         self._agent_to_did: dict[str, str] = {}
+        # Lazily created when create_did_key() is first called.
+        self._did_key_provider: object | None = None
 
     # ------------------------------------------------------------------
     # Creation
@@ -210,3 +227,81 @@ class DIDProvider:
     def registered_dids(self) -> list[str]:
         """Return sorted list of all registered DID strings."""
         return sorted(self._did_to_agent.keys())
+
+    # ------------------------------------------------------------------
+    # did:key support (requires cryptography package)
+    # ------------------------------------------------------------------
+
+    def create_did_key(self, agent_id: str) -> "DIDKeyDocument":
+        """Create a W3C ``did:key`` identifier for an agent.
+
+        This method provides a cryptographic ``did:key`` alongside the legacy
+        ``did:aumos`` method. The ``did:key`` encodes the agent's Ed25519
+        public key directly in the DID string, making it self-verifiable
+        without any registry lookup.
+
+        The ``cryptography`` package must be installed::
+
+            pip install agent-identity[crypto]
+
+        Parameters
+        ----------
+        agent_id:
+            The logical agent identifier to associate with the new key.
+
+        Returns
+        -------
+        DIDKeyDocument
+            The newly created document, containing the DID, public key, and
+            private key.
+
+        Raises
+        ------
+        ImportError
+            If the ``cryptography`` package is not installed.
+        """
+        if not _DID_KEY_AVAILABLE:
+            raise ImportError(
+                "did:key support requires the 'cryptography' package. "
+                "Install it with: pip install agent-identity[crypto]"
+            )
+        if self._did_key_provider is None:
+            self._did_key_provider = DIDKeyProvider()
+        # The type ignore is safe: _DID_KEY_AVAILABLE guarantees DIDKeyProvider
+        # was imported successfully.
+        provider: DIDKeyProvider = self._did_key_provider  # type: ignore[assignment]
+        return provider.create(agent_id)
+
+    def resolve_did_key(self, did: str) -> "DIDKeyDocument":
+        """Resolve a ``did:key`` string to its document.
+
+        Decodes the public key encoded in the DID string. If the DID was
+        created by this provider instance, the stored document (including
+        the private key) is returned instead.
+
+        Parameters
+        ----------
+        did:
+            A ``did:key:z<encoded>`` string.
+
+        Returns
+        -------
+        DIDKeyDocument
+            The resolved document.
+
+        Raises
+        ------
+        ImportError
+            If the ``cryptography`` package is not installed.
+        ValueError
+            If the DID is malformed or uses an unsupported key type.
+        """
+        if not _DID_KEY_AVAILABLE:
+            raise ImportError(
+                "did:key support requires the 'cryptography' package. "
+                "Install it with: pip install agent-identity[crypto]"
+            )
+        if self._did_key_provider is None:
+            self._did_key_provider = DIDKeyProvider()
+        provider: DIDKeyProvider = self._did_key_provider  # type: ignore[assignment]
+        return provider.resolve(did)
